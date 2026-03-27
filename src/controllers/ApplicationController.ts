@@ -18,6 +18,95 @@ import { prisma } from "../db";
  */
 export default class ApplicationController extends BaseController {
   /**
+   * POST /api/applications
+   * Create a new application for a listing (authenticated users only)
+   */
+  create = async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    const { listingId, message } = req.body as { listingId: string; message?: string };
+
+    if (!userId) {
+      throw new RequestError("Unauthenticated", 401);
+    }
+
+    const listing = await prisma.artisan.findUnique({
+      where: { id: listingId },
+      select: {
+        id: true,
+        curatorId: true,
+        isActive: true,
+        archivedAt: true,
+        name: true,
+        description: true,
+      }
+    });
+
+    if (!listing) {
+      throw new RequestError("Listing not found", 404);
+    }
+
+    if (!listing.isActive || listing.archivedAt) {
+      throw new RequestError("Listing is not accepting applications", 400);
+    }
+
+    if (listing.curatorId === userId) {
+      throw new RequestError("You cannot apply to your own listing", 403);
+    }
+
+    const existingApplication = await prisma.application.findFirst({
+      where: {
+        listingId,
+        applicantId: userId,
+        status: {
+          in: [ApplicationStatus.PENDING, ApplicationStatus.ACCEPTED],
+        },
+      },
+    });
+
+    if (existingApplication) {
+      throw new RequestError("You already have an active application for this listing", 409);
+    }
+
+    const created = await prisma.application.create({
+      data: {
+        listingId,
+        applicantId: userId,
+        message: message?.trim() || undefined,
+        status: ApplicationStatus.PENDING,
+      },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            curatorId: true,
+          }
+        },
+        applicant: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            avatar: true,
+            phone: true,
+          }
+        }
+      }
+    });
+
+    new ApplicationResource(req, res, created)
+      .json()
+      .additional({
+        status: 'success',
+        message: 'Application submitted successfully',
+        code: 201,
+      })
+      .status(201);
+  };
+
+  /**
    * GET /api/listings/:listingId/applications
    * List all applications for a specific listing (owner only)
    */
