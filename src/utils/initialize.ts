@@ -89,7 +89,8 @@ export const initialize = async (app: Express) => {
 
   // Route And Cors
   await loadRoutes(path.resolve(__dirname, "../routes"));
-  app.use(cors());
+  // app.use(cors());
+  app.use(cors(buildCorsOptions()));
 
   // Passport
   if (env("GOOGLE_CLIENT_ID")) {
