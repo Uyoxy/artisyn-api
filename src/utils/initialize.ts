@@ -1,10 +1,26 @@
 import express, { Express } from "express";
 import { facebookStrategy, googleStrategy } from "./passport";
-import { ipBlockingMiddleware, loadBlockedIPsFromDB, recordFailedAttemptMiddleware, startIPBlockingCleanup } from "src/middleware/ipBlocking";
-import { preventParameterPollutionMiddleware, sanitizeHeadersMiddleware, securityHeadersMiddleware, timingAttackPreventionMiddleware } from "src/middleware/securityHeaders";
-// Security imports
-import { rateLimitMiddleware, registerBypassToken, startRateLimitCleanup } from "src/middleware/rateLimiter";
-import { requestLoggingMiddleware, startLogCleanupScheduler } from "src/utils/securityLogging";
+import {
+  ipBlockingMiddleware,
+  loadBlockedIPsFromDB,
+  recordFailedAttemptMiddleware,
+  startIPBlockingCleanup,
+} from "src/middleware/ipBlocking";
+import {
+  preventParameterPollutionMiddleware,
+  sanitizeHeadersMiddleware,
+  securityHeadersMiddleware,
+  timingAttackPreventionMiddleware,
+} from "src/middleware/securityHeaders";
+import {
+  rateLimitMiddleware,
+  registerBypassToken,
+  startRateLimitCleanup,
+} from "src/middleware/rateLimiter";
+import {
+  requestLoggingMiddleware,
+  startLogCleanupScheduler,
+} from "src/utils/securityLogging";
 import routes, { loadRoutes } from "src/routes/index";
 
 import { ErrorHandler } from "./request-handlers";
@@ -25,20 +41,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const initialize = async (app: Express) => {
-  // ===== SECURITY MIDDLEWARE (Must be first) =====
-
+  // ===== HTTP LOGGER (must be first to wrap full request lifecycle) =====
+  // pino-http must precede all other middleware so it can observe both
+  // the incoming request and the final response status, even for errors.
+  if (env("NODE_ENV") !== "test") {
+    app.use(logger());
+  }
 
   // ===== BODY PARSING MIDDLEWARE =====
-  // Registered here only. Do not add body parsers in src/index.ts or any
-  // other bootstrap file — duplicate registration causes unpredictable
-  // request-processing behavior and makes middleware ordering harder to reason about.
-
-  // Parse application/json
+  // Registered here only. Do not add body parsers anywhere else —
+  // duplicate registration causes unpredictable request-processing
+  // behavior and makes middleware ordering harder to reason about.
   app.use(express.json());
-
-  // Parse application/x-www-form-urlencoded (for non-multipart forms)
   app.use(express.urlencoded({ extended: true }));
 
+  // ===== SECURITY MIDDLEWARE =====
   // Security headers - protects against common vulnerabilities
   app.use(securityHeadersMiddleware);
 
@@ -58,10 +75,10 @@ export const initialize = async (app: Express) => {
   app.use(rateLimitMiddleware);
 
   // Initialize rate limit bypass tokens from environment
-  const bypassTokensEnv = process.env.RATE_LIMIT_BYPASS_TOKENS || '';
+  const bypassTokensEnv = process.env.RATE_LIMIT_BYPASS_TOKENS || "";
   if (bypassTokensEnv) {
-    const tokens = bypassTokensEnv.split(',').map(t => t.trim());
-    tokens.forEach(token => {
+    const tokens = bypassTokensEnv.split(",").map((t) => t.trim());
+    tokens.forEach((token) => {
       if (token) {
         registerBypassToken(token);
         console.log(`[Security] Registered rate limit bypass token`);
@@ -76,22 +93,15 @@ export const initialize = async (app: Express) => {
   app.use(requestLoggingMiddleware);
 
   // Record failed authentication attempts for IP blocking
-  app.use(recordFailedAttemptMiddleware(['/auth/login', '/auth/register']));
+  app.use(recordFailedAttemptMiddleware(["/auth/login", "/auth/register"]));
 
-  // Parse application/json
-  app.use(express.json());
-
-  // Parse application/x-www-form-urlencoded (for non-multipart forms)
-  app.use(express.urlencoded({ extended: true }));
-
-  // Method Override
+  // Method override
   app.use(methodOverride("X-HTTP-Method"));
 
-  // Route And Cors
+  // ===== ROUTING AND AUTH =====
   await loadRoutes(path.resolve(__dirname, "../routes"));
   app.use(cors());
 
-  // Passport
   if (env("GOOGLE_CLIENT_ID")) {
     passport.use(googleStrategy());
   }
@@ -99,48 +109,31 @@ export const initialize = async (app: Express) => {
     passport.use(facebookStrategy());
   }
 
-  // Initialize Passport
   app.use(passport.initialize());
 
-  // Analytics Middleware - Track API calls before routing
+  // Analytics Middleware - track API calls before routing
   app.use(analyticsMiddleware);
 
   // Routes
   app.use(routes);
 
-  // Initialize Schedulers and Security Services
-  if (process.env.NODE_ENV !== 'test') {
-    console.log('[Security] Starting security services and schedulers...');
+  // Error Handler (after routes, before scheduler boot)
+  app.use(ErrorHandler);
+
+  // ===== BACKGROUND SERVICES =====
+  if (process.env.NODE_ENV !== "test") {
+    console.log("[Security] Starting security services and schedulers...");
   }
 
-  // Start rate limit cleanup
   startRateLimitCleanup();
-
-  // Start IP blocking cleanup
   startIPBlockingCleanup();
-
-  // Load previously blocked IPs from database
   await loadBlockedIPsFromDB();
-
-  // Start monitoring scheduler
   startMonitoringScheduler();
-
-  // Start log cleanup scheduler
   startLogCleanupScheduler();
-
-  // Start analytics and media schedulers
   startAnalyticsScheduler();
   startMediaScheduler();
 
-  if (process.env.NODE_ENV !== 'test') {
-    console.log('[Security] All security services initialized successfully');
-  }
-
-  // Error Handler
-  app.use(ErrorHandler);
-
-  // Logger
-  if (env("NODE_ENV") !== "test") {
-    app.use(logger());
+  if (process.env.NODE_ENV !== "test") {
+    console.log("[Security] All security services initialized successfully");
   }
 };
