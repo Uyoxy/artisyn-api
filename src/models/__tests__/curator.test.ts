@@ -28,7 +28,7 @@ describe('Curator Model', () => {
   // Clean up after tests
   afterAll(async () => {
     await prisma.curator.deleteMany();
-    await prisma.user.deleteMany();
+    await prisma.user.deleteMany({ where: { id: userId } });
     await prisma.$disconnect();
   });
 

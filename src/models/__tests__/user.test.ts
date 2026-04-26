@@ -6,9 +6,11 @@ import argon2 from 'argon2';
 import { prisma } from 'src/db';
 
 describe('User Model', () => {
+  const createdUserIds: string[] = [];
+
   // Clean up after tests
   afterAll(async () => {
-    await prisma.user.deleteMany();
+    await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     await prisma.$disconnect();
   });
 
@@ -24,6 +26,7 @@ describe('User Model', () => {
     const user = await prisma.user.create({
       data: userData,
     });
+    createdUserIds.push(user.id);
 
     expect(user).toHaveProperty('id');
     expect(user.email).toBe(userData.email);
@@ -41,9 +44,10 @@ describe('User Model', () => {
       role: UserRole.USER,
     };
 
-    await prisma.user.create({
+    const user = await prisma.user.create({
       data: userData,
     });
+    createdUserIds.push(user.id);
 
     await expect(
       prisma.user.create({
@@ -64,6 +68,7 @@ describe('User Model', () => {
     const user = await prisma.user.create({
       data: userData,
     });
+    createdUserIds.push(user.id);
 
     const updatedUser = await prisma.user.update({
       where: { id: user.id },

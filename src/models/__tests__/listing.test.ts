@@ -56,7 +56,7 @@ describe('Artisan Model', () => {
     await prisma.artisan.deleteMany();
     await prisma.category.deleteMany();
     await prisma.location.deleteMany();
-    await prisma.user.deleteMany();
+    await prisma.user.deleteMany({ where: { id: userId } });
     await prisma.$disconnect();
   });
 

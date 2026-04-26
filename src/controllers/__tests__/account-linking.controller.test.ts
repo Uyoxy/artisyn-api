@@ -60,7 +60,6 @@ afterEach(async () => {
 });
 
 // ─── Issue #137: Persist Full OAuth Provider Metadata ────────────────────────
-
 describe('POST /api/account-links (issue #137)', () => {
     it('should link account with full OAuth metadata', async () => {
         const res = await request(app)
@@ -121,7 +120,6 @@ describe('POST /api/account-links (issue #137)', () => {
 });
 
 // ─── Issue #136: Unlink by provider name ─────────────────────────────────────
-
 describe('DELETE /api/account-links/:provider (issue #136)', () => {
     it('should unlink an existing linked provider', async () => {
         await prisma.accountLink.create({
@@ -164,7 +162,6 @@ describe('DELETE /api/account-links/:provider (issue #136)', () => {
 });
 
 // ─── Issue #134: Check availability endpoint ─────────────────────────────────
-
 describe('POST /api/account-links/check-availability (issue #134)', () => {
     it('should return available when providerUserId is not linked', async () => {
         const res = await request(app)
@@ -218,7 +215,6 @@ describe('POST /api/account-links/check-availability (issue #134)', () => {
 });
 
 // ─── Issue #135: Verify account link endpoint ────────────────────────────────
-
 describe('POST /api/account-links/verify (issue #135)', () => {
     it('should verify an unverified account link', async () => {
         await prisma.accountLink.create({
