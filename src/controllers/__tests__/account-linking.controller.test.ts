@@ -103,6 +103,7 @@ describe('AccountLinkingController', () => {
             expect.objectContaining({
                 status: 'success',
                 data: expect.objectContaining({
+                    userId: testUserId,
                     provider: 'GOOGLE',
                     providerUserId: 'google-123',
                     providerEmail: 'user@example.com',
@@ -132,6 +133,7 @@ describe('AccountLinkingController', () => {
 
         expect(listResponse.body.data[0]).toEqual(
             expect.objectContaining({
+                userId: testUserId,
                 provider: 'GOOGLE',
                 accessToken: '***',
                 refreshToken: '***',
@@ -158,6 +160,7 @@ describe('AccountLinkingController', () => {
 
         expect(response.body.data).toEqual(
             expect.objectContaining({
+                userId: testUserId,
                 provider: 'GOOGLE',
                 providerUserId: 'google-123',
                 providerEmail: 'user@example.com',

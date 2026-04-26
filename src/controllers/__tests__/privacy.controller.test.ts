@@ -1,4 +1,4 @@
-import { afterEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import app from '../../index';
 import argon2 from 'argon2';
@@ -10,28 +10,26 @@ describe('PrivacySettingsController', () => {
     let testUserId2: string;
     let userToken: string;
 
-    beforeAll(async () => {
+    const createTestUsers = async () => {
         const passwordHash = await argon2.hash('password');
 
         const user1 = await prisma.user.create({
             data: {
-                email: `test-privacy-${Date.now()}@example.com`,
+                email: `test-privacy-${Date.now()}-${Math.random()}@example.com`,
                 password: passwordHash,
                 firstName: 'Test',
                 lastName: 'User',
             },
         });
-        testUserId = user1.id;
 
         const user2 = await prisma.user.create({
             data: {
-                email: `test-privacy-2-${Date.now()}@example.com`,
+                email: `test-privacy-2-${Date.now()}-${Math.random()}@example.com`,
                 password: passwordHash,
                 firstName: 'Test2',
                 lastName: 'User2',
             },
         });
-        testUserId2 = user2.id;
 
         const loginResponse = await request(app)
             .post('/api/auth/login')
@@ -41,19 +39,32 @@ describe('PrivacySettingsController', () => {
             })
             .expect(202);
 
-        userToken = loginResponse.body.token;
+        return {
+            user1,
+            user2,
+            token: loginResponse.body.token,
+        };
+    };
+
+    beforeEach(async () => {
+        const { user1, user2, token } = await createTestUsers();
+        testUserId = user1.id;
+        testUserId2 = user2.id;
+        userToken = token;
     });
 
     afterEach(async () => {
-        await prisma.privacySettings.deleteMany({
-            where: { userId: { in: [testUserId, testUserId2] } },
-        });
-    });
+        const cleanupUserIds = [testUserId, testUserId2].filter(Boolean);
 
-    afterAll(async () => {
-        await prisma.user.deleteMany({
-            where: { id: { in: [testUserId, testUserId2] } },
+        await prisma.privacySettings.deleteMany({
+            where: { userId: { in: cleanupUserIds } },
         });
+
+        if (cleanupUserIds.length > 0) {
+            await prisma.user.deleteMany({
+                where: { id: { in: cleanupUserIds } },
+            });
+        }
     });
 
     it('should require authentication for privacy endpoints', async () => {

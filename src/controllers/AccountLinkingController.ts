@@ -161,6 +161,7 @@ export default class AccountLinkingController extends BaseController {
       take: limit,
       select: {
         id: true,
+        userId: true,
         provider: true,
         providerUserId: true,
         providerEmail: true,
