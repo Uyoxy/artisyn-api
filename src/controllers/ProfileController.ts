@@ -7,7 +7,21 @@ import UserProfileCollection from "src/resources/UserProfileCollection";
 import UserProfileResource from "src/resources/UserProfileResource";
 import { logAuditEvent } from 'src/utils/auditLogger';
 import { prisma } from 'src/db';
-import { profileValidationRules } from 'src/utils/profileValidators';
+import { normalizeSocialLinks, profileValidationRules } from 'src/utils/profileValidators';
+
+const profileCompletionFields = [
+    'bio',
+    'dateOfBirth',
+    'profilePictureUrl',
+    'website',
+    'occupation',
+    'companyName',
+] as const;
+
+const isPubliclyVisible = (
+    isPublic: boolean,
+    profileVisibility?: 'PUBLIC' | 'PRIVATE' | 'FRIENDS_ONLY' | 'CUSTOM'
+) => isPublic && (profileVisibility ?? 'PUBLIC') === 'PUBLIC';
 
 /**
  * UserProfileController - Manages user profile CRUD operations
@@ -75,8 +89,8 @@ export default class extends BaseController {
             RequestError.assertFound(userId, 'Unauthorized', 401);
 
             // Validate input
-            const errors = await this.validateAsync(req, profileValidationRules);
-            RequestError.abortIf(Object.keys(errors).length > 0, 'Validation failed', 422);
+            const data = await this.validateAsync(req, profileValidationRules);
+            const socialLinks = normalizeSocialLinks(data.socialLinks);
 
             // Get existing profile
             const existingProfile = await prisma.userProfile.findFirst({
@@ -84,22 +98,15 @@ export default class extends BaseController {
             });
 
             // Calculate completion percentage
-            const completionFields = [
-                'bio',
-                'dateOfBirth',
-                'profilePictureUrl',
-                'website',
-                'occupation',
-                'companyName',
-            ];
-            const filledFields = completionFields.filter(
-                field => req.body[field] !== undefined && req.body[field] !== null && req.body[field] !== ''
+            const filledFields = profileCompletionFields.filter(
+                field => data[field] !== undefined && data[field] !== null && data[field] !== ''
             ).length;
-            const completionPercentage = Math.round((filledFields / completionFields.length) * 100);
+            const completionPercentage = Math.round((filledFields / profileCompletionFields.length) * 100);
 
             // Prepare update data
             const updateData: any = {
-                ...req.body,
+                ...data,
+                socialLinks,
                 profileCompletionPercentage: completionPercentage,
             };
 
@@ -160,9 +167,24 @@ export default class extends BaseController {
                 },
             });
 
-            const data = profile || {
+            const missingFields = profileCompletionFields.filter(field => {
+                const value = profile?.[field];
+                return value === undefined || value === null || value === '';
+            });
+
+            const data = profile ? {
+                ...profile,
+                missingFields,
+            } : {
                 id: null,
                 profileCompletionPercentage: 0,
+                bio: null,
+                dateOfBirth: null,
+                profilePictureUrl: null,
+                website: null,
+                occupation: null,
+                companyName: null,
+                missingFields: [...profileCompletionFields],
             };
 
             new UserProfileResource(req, res, data)
@@ -201,11 +223,49 @@ export default class extends BaseController {
                     isProfessional: true,
                     isPublic: true,
                     createdAt: true,
+                    user: {
+                        select: {
+                            email: true,
+                            phone: true,
+                            privacySettings: {
+                                select: {
+                                    profileVisibility: true,
+                                    showEmail: true,
+                                    showPhone: true,
+                                    showLocation: true,
+                                },
+                            },
+                        },
+                    },
                 },
             });
 
             RequestError.assertFound(profile, 'Profile not found', 404);
-            RequestError.assertFound(profile.isPublic, 'Profile is private', 403);
+            RequestError.abortIf(
+                !isPubliclyVisible(
+                    profile.isPublic,
+                    profile.user.privacySettings?.profileVisibility
+                ),
+                'Profile is private',
+                403
+            );
+
+            const publicProfile = {
+                id: profile.id,
+                userId: profile.userId,
+                bio: profile.bio,
+                profilePictureUrl: profile.profilePictureUrl,
+                website: profile.website,
+                occupation: profile.occupation,
+                companyName: profile.companyName,
+                location: profile.user.privacySettings?.showLocation ? profile.location : null,
+                email: profile.user.privacySettings?.showEmail ? profile.user.email : null,
+                phone: profile.user.privacySettings?.showPhone ? profile.user.phone : null,
+                verifiedBadge: profile.verifiedBadge,
+                isProfessional: profile.isProfessional,
+                isPublic: profile.isPublic,
+                createdAt: profile.createdAt,
+            };
 
             // Log public profile view
             await logAuditEvent(req.user?.id, 'PROFILE_VIEW', {
@@ -218,7 +278,7 @@ export default class extends BaseController {
                 },
             });
 
-            new UserProfileResource(req, res, profile)
+            new UserProfileResource(req, res, publicProfile)
                 .json()
                 .status(200)
                 .additional({
