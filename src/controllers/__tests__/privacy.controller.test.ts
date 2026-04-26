@@ -55,7 +55,7 @@ describe('PrivacySettingsController', () => {
                         email: user1.email,
                         password: 'password',
                     })
-                    .expect(202);
+                    .expect(200);
 
                 return {
                     user1,

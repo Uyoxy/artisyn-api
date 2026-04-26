@@ -138,11 +138,11 @@ export default class AccountLinkingController extends BaseController {
       }
     })
       .json()
-      .status(200)
+      .status(202)
       .additional({
         status: 'success',
-        message: 'Account unlinked successfully',
-        code: 200,
+        message: 'Account unlink request accepted',
+        code: 202,
       });
   };
 
