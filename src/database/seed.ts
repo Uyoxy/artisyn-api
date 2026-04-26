@@ -6,18 +6,15 @@ import { prisma } from 'src/db';
 async function main () {
   console.log('Starting seed...');
 
-  // Clear existing data (in order to respect foreign key constraints)
-  // Delete leaf nodes first (models with foreign keys to other models)
+  // Clear existing data
   await prisma.tip.deleteMany();
   await prisma.review.deleteMany();
-  await prisma.job.deleteMany(); // Jobs reference Applications and Artisans
-  await prisma.application.deleteMany(); // Applications reference Artisans and Users
-  await prisma.artisan.deleteMany(); // Artisans reference Users, Categories, Subcategories, Locations
-  await prisma.curator.deleteMany(); // Curators reference Users
-  await prisma.subcategory.deleteMany(); // Subcategories reference Categories
+  await prisma.artisan.deleteMany();
+  await prisma.subcategory.deleteMany();
   await prisma.category.deleteMany();
-  await prisma.location.deleteMany(); // Locations referenced by Users and Artisans
-  await prisma.user.deleteMany(); // Users must be deleted last
+  await prisma.curator.deleteMany();
+  await prisma.location.deleteMany();
+  await prisma.user.deleteMany();
 
   console.log('Cleared existing data');
 
