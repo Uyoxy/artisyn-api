@@ -1,16 +1,22 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import app from '../../index';
+import argon2 from 'argon2';
+import request from 'supertest';
 import { prisma } from 'src/db';
 
 describe('PrivacySettingsController', () => {
     let testUserId: string;
     let testUserId2: string;
+    let userToken: string;
 
     beforeAll(async () => {
+        const passwordHash = await argon2.hash('password');
+
         const user1 = await prisma.user.create({
             data: {
                 email: `test-privacy-${Date.now()}@example.com`,
-                password: 'hashed_password',
+                password: passwordHash,
                 firstName: 'Test',
                 lastName: 'User',
             },
@@ -20,18 +26,109 @@ describe('PrivacySettingsController', () => {
         const user2 = await prisma.user.create({
             data: {
                 email: `test-privacy-2-${Date.now()}@example.com`,
-                password: 'hashed_password',
+                password: passwordHash,
                 firstName: 'Test2',
                 lastName: 'User2',
             },
         });
         testUserId2 = user2.id;
+
+        const loginResponse = await request(app)
+            .post('/api/auth/login')
+            .send({
+                email: user1.email,
+                password: 'password',
+            })
+            .expect(202);
+
+        userToken = loginResponse.body.token;
     });
 
     afterEach(async () => {
         await prisma.privacySettings.deleteMany({
             where: { userId: { in: [testUserId, testUserId2] } },
         });
+    });
+
+    afterAll(async () => {
+        await prisma.user.deleteMany({
+            where: { id: { in: [testUserId, testUserId2] } },
+        });
+    });
+
+    it('should require authentication for privacy endpoints', async () => {
+        await request(app)
+            .get('/api/privacy')
+            .expect(401);
+
+        await request(app)
+            .post('/api/privacy')
+            .send({ showEmail: true })
+            .expect(401);
+    });
+
+    it('should return default privacy settings for an authenticated user', async () => {
+        const response = await request(app)
+            .get('/api/privacy')
+            .set('Authorization', `Bearer ${userToken}`)
+            .expect(200);
+
+        expect(response.body).toEqual(
+            expect.objectContaining({
+                status: 'success',
+                data: expect.objectContaining({
+                    userId: testUserId,
+                    profileVisibility: 'PUBLIC',
+                }),
+            })
+        );
+    });
+
+    it('should update privacy settings through the API', async () => {
+        const response = await request(app)
+            .post('/api/privacy')
+            .set('Authorization', `Bearer ${userToken}`)
+            .send({
+                profileVisibility: 'PRIVATE',
+                showEmail: true,
+                showPhone: true,
+            })
+            .expect(200);
+
+        expect(response.body).toEqual(
+            expect.objectContaining({
+                status: 'success',
+                data: expect.objectContaining({
+                    userId: testUserId,
+                    profileVisibility: 'PRIVATE',
+                    showEmail: true,
+                    showPhone: true,
+                }),
+            })
+        );
+    });
+
+    it('should preserve privacy settings between requests', async () => {
+        await request(app)
+            .post('/api/privacy')
+            .set('Authorization', `Bearer ${userToken}`)
+            .send({
+                profileVisibility: 'FRIENDS_ONLY',
+                showLocation: false,
+            })
+            .expect(200);
+
+        const response = await request(app)
+            .get('/api/privacy')
+            .set('Authorization', `Bearer ${userToken}`)
+            .expect(200);
+
+        expect(response.body.data).toEqual(
+            expect.objectContaining({
+                profileVisibility: 'FRIENDS_ONLY',
+                showLocation: false,
+            })
+        );
     });
 
     it('should create default privacy settings', async () => {

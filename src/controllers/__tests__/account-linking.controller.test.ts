@@ -1,5 +1,8 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import app from '../../index';
+import argon2 from 'argon2';
+import request from 'supertest';
 import { prisma } from 'src/db';
 
 // AccountLinkProvider type removed as it's not exported from @prisma/client yet
@@ -7,12 +10,16 @@ import { prisma } from 'src/db';
 describe('AccountLinkingController', () => {
     let testUserId: string;
     let testUserId2: string;
+    let userToken: string;
+    let otherUserToken: string;
 
     beforeAll(async () => {
+        const passwordHash = await argon2.hash('password');
+
         const user1 = await prisma.user.create({
             data: {
                 email: `test-account-link-${Date.now()}@example.com`,
-                password: 'hashed_password',
+                password: passwordHash,
                 firstName: 'Test',
                 lastName: 'User',
             },
@@ -22,18 +29,237 @@ describe('AccountLinkingController', () => {
         const user2 = await prisma.user.create({
             data: {
                 email: `test-account-link-2-${Date.now()}@example.com`,
-                password: 'hashed_password',
+                password: passwordHash,
                 firstName: 'Test2',
                 lastName: 'User2',
             },
         });
         testUserId2 = user2.id;
+
+        const loginResponse = await request(app)
+            .post('/api/auth/login')
+            .send({
+                email: user1.email,
+                password: 'password',
+            })
+            .expect(202);
+
+        userToken = loginResponse.body.token;
+
+        const secondLogin = await request(app)
+            .post('/api/auth/login')
+            .send({
+                email: user2.email,
+                password: 'password',
+            })
+            .expect(202);
+
+        otherUserToken = secondLogin.body.token;
+    });
+
+    afterAll(async () => {
+        await prisma.user.deleteMany({
+            where: { id: { in: [testUserId, testUserId2] } },
+        });
     });
 
     afterEach(async () => {
         await prisma.accountLink.deleteMany({
             where: { userId: { in: [testUserId, testUserId2] } },
         });
+    });
+
+    it('should require authentication for account linking routes', async () => {
+        await request(app)
+            .get('/api/account-links')
+            .expect(401);
+
+        await request(app)
+            .post('/api/account-links')
+            .send({
+                provider: 'GOOGLE',
+                providerUserId: 'google-123',
+                accessToken: 'test-token',
+            })
+            .expect(401);
+    });
+
+    it('should create and list linked accounts with masked tokens', async () => {
+        const createResponse = await request(app)
+            .post('/api/account-links')
+            .set('Authorization', `Bearer ${userToken}`)
+            .send({
+                provider: 'GOOGLE',
+                providerUserId: 'google-123',
+                accessToken: 'access-token-123',
+                refreshToken: 'refresh-token-123',
+                providerEmail: 'user@example.com',
+                providerName: 'Test User',
+                expiresAt: new Date(Date.now() + 3600000).toISOString(),
+            })
+            .expect(201);
+
+        expect(createResponse.body).toEqual(
+            expect.objectContaining({
+                status: 'success',
+                data: expect.objectContaining({
+                    provider: 'GOOGLE',
+                    providerUserId: 'google-123',
+                    providerEmail: 'user@example.com',
+                    providerName: 'Test User',
+                    isVerified: true,
+                    accessToken: '***',
+                    refreshToken: '***',
+                }),
+            })
+        );
+
+        const listResponse = await request(app)
+            .get('/api/account-links?page=1&limit=1')
+            .set('Authorization', `Bearer ${userToken}`)
+            .expect(200);
+
+        expect(listResponse.body.meta).toEqual(
+            expect.objectContaining({
+                pagination: expect.objectContaining({
+                    total: 1,
+                    perPage: 1,
+                    from: 1,
+                    to: 1,
+                }),
+            })
+        );
+
+        expect(listResponse.body.data[0]).toEqual(
+            expect.objectContaining({
+                provider: 'GOOGLE',
+                accessToken: '***',
+                refreshToken: '***',
+            })
+        );
+    });
+
+    it('should return details for a provider-specific linked account', async () => {
+        await prisma.accountLink.create({
+            data: {
+                userId: testUserId,
+                provider: 'GOOGLE',
+                providerUserId: 'google-123',
+                accessToken: 'access-token',
+                providerEmail: 'user@example.com',
+                providerName: 'Test User',
+            },
+        });
+
+        const response = await request(app)
+            .get('/api/account-links/GOOGLE')
+            .set('Authorization', `Bearer ${userToken}`)
+            .expect(200);
+
+        expect(response.body.data).toEqual(
+            expect.objectContaining({
+                provider: 'GOOGLE',
+                providerUserId: 'google-123',
+                providerEmail: 'user@example.com',
+                providerName: 'Test User',
+                accessToken: '***',
+                refreshToken: undefined,
+            })
+        );
+    });
+
+    it('should update linked account tokens with the refresh endpoint', async () => {
+        await prisma.accountLink.create({
+            data: {
+                userId: testUserId,
+                provider: 'GOOGLE',
+                providerUserId: 'google-123',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+            },
+        });
+
+        const expiresAt = new Date(Date.now() + 3600000).toISOString();
+
+        const response = await request(app)
+            .patch('/api/account-links/GOOGLE/token')
+            .set('Authorization', `Bearer ${userToken}`)
+            .send({
+                accessToken: 'new-access-token',
+                refreshToken: 'new-refresh-token',
+                expiresAt,
+            })
+            .expect(200);
+
+        expect(response.body.data).toEqual(
+            expect.objectContaining({
+                provider: 'GOOGLE',
+                accessToken: '***',
+                refreshToken: '***',
+            })
+        );
+
+        const updated = await prisma.accountLink.findFirst({
+            where: { userId: testUserId, provider: 'GOOGLE' },
+        });
+
+        expect(updated?.accessToken).toBe('new-access-token');
+        expect(updated?.refreshToken).toBe('new-refresh-token');
+        expect(updated?.expiresAt).toEqual(new Date(expiresAt));
+    });
+
+    it('should return 404 for an unlinked provider', async () => {
+        await request(app)
+            .get('/api/account-links/FACEBOOK')
+            .set('Authorization', `Bearer ${userToken}`)
+            .expect(404);
+    });
+
+    it('should prevent token refresh on behalf of a different user', async () => {
+        await prisma.accountLink.create({
+            data: {
+                userId: testUserId,
+                provider: 'GOOGLE',
+                providerUserId: 'google-123',
+                accessToken: 'access-token',
+            },
+        });
+
+        await request(app)
+            .patch('/api/account-links/GOOGLE/token')
+            .set('Authorization', `Bearer ${otherUserToken}`)
+            .send({ accessToken: 'new-token' })
+            .expect(404);
+    });
+
+    it('should unlink a provider by provider name', async () => {
+        await prisma.accountLink.create({
+            data: {
+                userId: testUserId,
+                provider: 'GOOGLE',
+                providerUserId: 'google-123',
+                accessToken: 'access-token',
+            },
+        });
+
+        await request(app)
+            .delete('/api/account-links/GOOGLE')
+            .set('Authorization', `Bearer ${userToken}`)
+            .expect(200);
+
+        const deleted = await prisma.accountLink.findFirst({
+            where: { userId: testUserId, provider: 'GOOGLE' },
+        });
+
+        expect(deleted).toBeNull();
+    });
+
+    it('should reject invalid provider values for token refresh', async () => {
+        await request(app)
+            .patch('/api/account-links/INVALID_PROVIDER/token')
+            .set('Authorization', `Bearer ${userToken}`)
+            .send({ accessToken: 'new-token' })
+            .expect(400);
     });
 
     it('should link a social account', async () => {

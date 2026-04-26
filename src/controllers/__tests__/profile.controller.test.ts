@@ -406,6 +406,30 @@ describe('ProfileController', () => {
         }));
     });
 
+    it('should return public profile through the actual API route', async () => {
+        const { user } = await createPublicProfileFixture({
+            privacySettings: {
+                profileVisibility: 'PUBLIC',
+                showEmail: true,
+                showPhone: true,
+                showLocation: true,
+            },
+            location: 'Lagos',
+            phone: '+2348000000000',
+        });
+
+        const response = await request(app)
+            .get(`/api/profile/${user.id}/public`)
+            .expect(200);
+
+        expect(response.body.data).toEqual(expect.objectContaining({
+            userId: user.id,
+            location: 'Lagos',
+            email: user.email,
+            phone: '+2348000000000',
+        }));
+    });
+
     it('should reject public profile access when profile visibility is private', async () => {
         const { user } = await createPublicProfileFixture({
             privacySettings: {

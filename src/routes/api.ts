@@ -72,6 +72,7 @@ router.post('/privacy/retention', authenticateToken, new PrivacySettingsControll
 router.get('/account-links', authenticateToken, new AccountLinkingController().getLinkedAccounts);
 router.post('/account-links', authenticateToken, new AccountLinkingController().linkAccount);
 router.get('/account-links/:provider', authenticateToken, new AccountLinkingController().checkProviderLinked);
+router.patch('/account-links/:provider/token', authenticateToken, new AccountLinkingController().updateAccountToken);
 router.delete('/account-links/:provider', authenticateToken, new AccountLinkingController().unlinkAccount);
 
 // Data Export routes (GDPR compliance)

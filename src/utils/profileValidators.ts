@@ -77,6 +77,10 @@ export const accountLinkValidationRules: InitialRules = {
     provider: ['string', 'required', 'in:GOOGLE,FACEBOOK,GITHUB,APPLE,TWITTER,LINKEDIN'],
     providerUserId: ['string', 'required'],
     accessToken: ['string', 'required'],
+    refreshToken: ['string'],
+    expiresAt: ['date'],
+    providerEmail: ['email'],
+    providerName: ['string', 'max:100'],
 };
 
 /**

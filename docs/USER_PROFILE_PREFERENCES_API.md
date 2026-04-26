@@ -630,7 +630,37 @@ Retrieves details for a specific linked account.
 
 ---
 
-### 4. Unlink a Social Account
+### 4. Refresh Linked Account Token
+**PATCH** `/api/account-links/:provider/token`
+
+Updates the access token and optional refresh token for a linked social account. This route is restricted to the owning user.
+
+**Request Body:**
+```json
+{
+  "accessToken": "new-access-token",
+  "refreshToken": "new-refresh-token",
+  "expiresAt": "2024-01-29T10:00:00Z"
+}
+```
+
+**Response (200):**
+```json
+{
+  "data": { /* updated account link details */ },
+  "status": "success",
+  "message": "Access token updated successfully",
+  "code": 200
+}
+```
+
+**Error Responses:**
+- `400`: Invalid provider or missing access token
+- `404`: Account link not found
+
+---
+
+### 5. Unlink a Social Account
 **DELETE** `/api/account-links/:provider`
 
 Removes a linked social account.
