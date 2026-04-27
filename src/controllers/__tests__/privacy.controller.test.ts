@@ -49,6 +49,8 @@ describe('PrivacySettingsController', () => {
                     },
                 });
 
+                await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+
                 const loginResponse = await request(app)
                     .post('/api/auth/login')
                     .send({
@@ -66,7 +68,7 @@ describe('PrivacySettingsController', () => {
                 if (attempt === retries) {
                     throw error;
                 }
-                await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+                await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
             }
         }
 
